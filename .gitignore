@@ -1,0 +1,15 @@
+# secrets & local data - never commit
+.env
+backend/.env
+backend/data/*
+!backend/data/.gitkeep
+
+# python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+
+# node
+frontend/node_modules/
+frontend/dist/
