@@ -13,11 +13,15 @@ from .prompts import INSUFFICIENT_SENTINEL
 from .vector_store import Passage
 
 log = logging.getLogger("rag.chat")
-CITATION = re.compile(r"\[S(\d+)\]")
+CITATION = re.compile(r"(?:\[|【)\s*S(\d+)\s*(?:\]|】)")
 BROAD_QUERY = re.compile(
     r"\b(summary|summarize|overview|gist|key\s+(dates?|names?|numbers?|points?|facts?)|"
     r"main\s+(conclusions?|decisions?|points?|ideas?)|important|takeaways?|"
     r"what\s+is\s+(this|the\s+document|it)|describe\s+(this|the\s+document))\b",
+    re.IGNORECASE,
+)
+FIELD_QUERY = re.compile(
+    r"\b(name|phone|mobile|telephone|email|e-mail|mail|address|number|contact)\b",
     re.IGNORECASE,
 )
 
@@ -43,7 +47,7 @@ def _insufficient(doc: Document, standalone: str) -> dict:
 
 def _retrieval_k(question: str, default: int) -> int:
     """Use more passages for document-wide questions, without slowing normal queries."""
-    return max(default, 12) if BROAD_QUERY.search(question) else default
+    return max(default, 12) if (BROAD_QUERY.search(question) or FIELD_QUERY.search(question)) else default
 
 
 def answer_question(container: Container, doc: Document, question: str, history: list[dict]) -> dict:
@@ -69,7 +73,11 @@ def answer_question(container: Container, doc: Document, question: str, history:
     )
 
     # 3) Guard rail #1: if nothing is similar enough, don't even call the LLM.
-    passages: list[Passage] = [p for p in found if p.similarity >= s.min_similarity]
+    # Short field lookups ("phone number", "email", etc.) often have weak
+    # semantic similarity despite matching text being present in the document.
+    # Keep the best retrieved passages so the LLM can inspect the actual text.
+    threshold = min(s.min_similarity, 0.05) if FIELD_QUERY.search(standalone) else s.min_similarity
+    passages: list[Passage] = [p for p in found if p.similarity >= threshold]
     if not passages:
         return _insufficient(doc, standalone)
 
@@ -90,7 +98,11 @@ def answer_question(container: Container, doc: Document, question: str, history:
         n = int(m.group(1))
         if n in valid and n not in cited:
             cited.append(n)
-    answer = CITATION.sub(lambda m: m.group(0) if int(m.group(1)) in valid else "", raw).strip()
+    # Normalize both ASCII and full-width citation styles for the frontend.
+    answer = CITATION.sub(
+        lambda m: f"[S{m.group(1)}]" if int(m.group(1)) in valid else "",
+        raw,
+    ).strip()
 
     sources = [
         {

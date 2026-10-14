@@ -21,6 +21,7 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+
 /* Glass surface used by every panel so text stays legible over moving waves. */
 .glass {
   background: rgba(6, 34, 44, 0.74);
